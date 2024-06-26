@@ -10,9 +10,15 @@ T2 = 3180e-6; % bass shelf
 b0 = [0 1/T1 1/(T1*T0)];  % continuous time numerator 
 a0 = [1 (T1+T2)/(T1*T2) 1/(T1*T2)]; % continuous time denominator 
 
+%liveScript:  or enter your own s-domain transfer function? Interface like
+%plugin? 
+
 sdtf = tf(b0, a0); % make continuous transer function object
 bOrderOriginal = length(b0)-1; % order of s-domain numerator 
 aOrderOriginal = length(a0)-1; % order of s-domain denominator 
+
+%liveScript: load  your own file? we would still run the impulse for the
+%plots
 
 fs = 48e3; % original sample rate 
 T = 1/fs; % original sample period
@@ -21,7 +27,7 @@ f = (0:fs/2-1)'; % 1Hz resolution regardless of sample rate
 radPerSec = (2*pi*f); % rad/sample array
 radPerSample = radPerSec/fs; % rad/sample array
 
-duration = 0.5; % length of time domain response in seconds  - this will affect mseTime!!
+duration = 0.5; % length of time domain response in seconds 
 
 t = 0:T:duration-T; % time array for IR plot
 
@@ -34,7 +40,7 @@ x = zeros(fs*duration,1);
 x(1) = 1;
 
 %%%%%%%%%%%%%%%% Setup Oversampling %%%%%%%%%%%%%%%%%%%
-overSampleExp = 0; % oversamplig exponent - upsample rate will be 2^overSampleExp*fs
+overSampleExp = 5; % oversamplig exponent - upsample rate will be 2^overSampleExp*fs
 fsUp = fs*2^overSampleExp; % upsample rate
 Tup = 1/fsUp; % upsample period
 [upFilts, downFilts] = getOverSamplingFilters(overSampleExp); % get anti-alias/image filters
@@ -49,7 +55,8 @@ Tup = 1/fsUp; % upsample period
 % 5: Curve Fitting (Complex)
 % 6: Curve Fitting (Magnitude Only) 
 % 7: Nyquist Band Transform
-transformNum = 1;
+
+transformNum = 3;
 
 %%%%%%%%%%%%%%%%%% Transforms %%%%%%%%%%%%%%%%%%%%
 switch transformNum
@@ -70,8 +77,8 @@ switch transformNum
         b1 = zdtf.Numerator{1}; 
         a1 = zdtf.Denominator{1};
     case 2
+        Tup = 1/fsUp; % sample period at upsample rate
         tic
-        Tup = 1/fsUp;
         zdtf = c2d(sdtf,Tup,'impulse');
         procTime = toc;
         transformName = 'Impulse Invariant';
@@ -79,12 +86,10 @@ switch transformNum
         b1 = zdtf.Numerator{1}; 
         a1 = zdtf.Denominator{1};
     case 3
-        opts = c2dOptions;
-        opts.Method = 'tustin';
         tic
-        zdtf = c2d(sdtf,Tup,opts);
+        zdtf = c2d(sdtf,Tup,'tustin');
         procTime = toc;
-        transformName = 'Bilinear';
+        transformName = 'Bilinear Transform';
         % discrete time coefficients 
         b1 = zdtf.Numerator{1}; 
         a1 = zdtf.Denominator{1};    
@@ -97,21 +102,21 @@ switch transformNum
         b1 = zdtf.Numerator{1}; 
         a1 = zdtf.Denominator{1};    
     case 5
-        tic
         fUp = (0:fsUp/2-1)'; % 1Hz resolution regardless of sample rate 
         radPerSecUp = (2*pi*fUp); % rad/sample array
         radPerSampleUp = radPerSecUp/fsUp; % rad/sample array
         H0Up = freqs(b0,a0,radPerSecUp); % complex freq response of s-domain transfer function
         wts = getBkWts((0:fsUp/2-1)');
+        tic
         [b1,a1] = invfreqz(H0Up,radPerSampleUp,bOrderOriginal,aOrderOriginal,wts,1e2,0.001);
         procTime = toc;
-        transformName = 'Curve Fitting';
+        transformName = 'Complex Error Minimization';
     case 6
-        tic
         Nfft = fs;
+        tic
         [b1,a1] = invFreqzMagOnly(b0,a0,fsUp,Nfft,bOrderOriginal,aOrderOriginal);
         procTime = toc;
-        transformName = 'Curve Fitting (Mag Only)';
+        transformName = 'Magnitude Error Minimization';
     case 7
         Nfft = fs;
         [b1,a1,procTime] = nyquistBandTransform(b0,a0,fsUp,aOrderOriginal);
@@ -168,6 +173,7 @@ twentyHzIdx = find(f >= 20,1); % this should always be equal to 21
 twentyKhzIdx = find(f >= 20e3,1); % this should always be equal to 20001
 H0BandLim = H0(twentyHzIdx:twentyKhzIdx); % H0 bandlimited 0-20kHz
 H1BandLim = H1(twentyHzIdx:twentyKhzIdx); % H1 bandlimited 0-20kHz
+H1angBandLim = H1ang(twentyHzIdx:twentyKhzIdx);
 fBandLim = f(twentyHzIdx:twentyKhzIdx);
 
 % find time index closest to 0.01 seconds
@@ -176,26 +182,27 @@ posIdxs = [abs(0.01-t(timeIdx)),abs(0.01-t(timeIdx-1))];
 [~, IdxTemp] = min(posIdxs);
 timeIdx = timeIdx-(IdxTemp-1);
 
-% TODO: check this math
-rmseTime = mean(abs(h0(1:timeIdx)-y(1:timeIdx))); % TODO: Should this be calculated over less time? Rn it dpeends on duration. 
+% time
+timeRMSE = sqrt(mean((h0(1:timeIdx)-y(1:timeIdx)).^2)); % TODO: Should this be calculated over less time? Rn it dpeends on duration. 
 
-magErrorAll = abs(mag2db(abs(H0BandLim)./abs(H1BandLim)));
+% magnitude
+sqMagError = (mag2db(abs(H0BandLim)./abs(H1BandLim))).^2;
 weights = getBkWts(fBandLim);
-magErrorWeighted = weights.*magErrorAll;
-magErrorAve = sum(magErrorWeighted)/sum(weights);
+sqMagErrorWeighted = weights.*sqMagError;
+rootMeanSqMagErrorWeighted = sqrt(sum(sqMagErrorWeighted)/sum(weights));
 
-phaseErrorAbs = abs(rad2deg(angle(H0BandLim))-rad2deg(H1ang(twentyHzIdx:twentyKhzIdx)));
-phaseErrorSqWeighted = weights.*phaseErrorAbs;
-rmsePhase = sum(phaseErrorSqWeighted)/sum(weights);
-
-absComplexError = abs(H0BandLim-H1BandLim);
-absComplexErrorWeighted = weights.*absComplexError;
-meanAbsComplexErrorWeighted = sum(absComplexErrorWeighted)/sum(weights);
-
-% mean weighted euclidean distance in the complex plane
+% phase
+sqPhaseError = (rad2deg(angle(H0BandLim))-rad2deg(H1angBandLim)).^2;
+sqPhaseErrorWeighted = weights.*sqPhaseError;
+rootMeanSqPhaseErrorWeighted = sqrt(sum(sqPhaseErrorWeighted)/sum(weights));
+    
+% root mean squared euclidean distance in the complex plane
+H1BandLimPhaseComp = abs(H1BandLim).*exp(1j*H1angBandLim); 
+sqComplexError = abs(H0BandLim-H1BandLimPhaseComp).^2;
+sqComplexErrorWeighted = weights.*sqComplexError;
+rootMeanSqComplexErrorWeighted = sqrt(sum(sqComplexErrorWeighted)/sum(weights));
 
 %%%%%%%%%%%%%%%%%%%%% plots %%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
 legendStr = ["Continuous", transformName];
 
 if fsUp >= 1e6
@@ -208,17 +215,21 @@ fig = figure(1);
 
 spaceStr = ' ---------> ';
 sgtitle(horzcat(transformName, ' Method', newline, ...
+    'Bark-Weighted RMSE of Complex Response (20Hz-20kHz) = ', num2str(rootMeanSqComplexErrorWeighted), newline, ...
     'Filter Construction Time = ', num2str(procTime), ' seconds',  newline, ...
     'Original Sample Rate = ', num2str(fs/1000, '%.0f'), ' kHz', spaceStr, ...
     'Upsample Rate = ', upFsStr), ...
     fontsize = 24)
+
+% time plot
+
 subplot(3,1,1)
 plot(t,h0,LineWidth=3)
 hold on 
 plot(t,y,LineWidth=2)
 hold off
 legend(legendStr, Location='northeast')
-title(horzcat('Normalized Mean Absolute Time Domain Error (0-0.01s) = ', num2str(rmseTime,'%.2E'), ...
+title(horzcat('Time RMSE (0-0.01s) = ', num2str(timeRMSE,'%.2E'), ...
 '                ' ...
 , 'Latency Due to FIR Anti-Alias Filters = ', num2str((delay*T)*1000,'%.2f'), 'ms'))
 xlabel("Time (s)")
@@ -226,6 +237,7 @@ ylabel("Normalized Amplitude")
 xlim([0 0.01])
 set(gca,fontsize=18);
 
+% magnitude plot
 subplot(3,1,2)
 semilogx(f,mag2db(abs(H0)),LineWidth=3)
 hold on
@@ -235,24 +247,24 @@ xline(testFreq,LineWidth=2,Label=['Error at' newline '20kHz =' newline num2str(m
     LabelHorizontalAlignment='left',LabelVerticalAlignment='top')
 hold off
 legend(legendStr, Location='southwest')
-title(['Bark-Weighted Mean Absolute Magnitude Error (20Hz-20kHz)  = ' num2str(magErrorAve,'%.2f') ' dB'])
+title(['Bark-Weighted Magnitude RMSE (20Hz-20kHz)  = ' num2str(rootMeanSqMagErrorWeighted,'%.2f') ' dB'])
 xlabel("Frequency (Hz)")
 ylabel("Magnitude (dB)")
 xlim([0 fs/2+0.1*fs+2000])
 ylim([-40 24])
 set(gca,fontsize=18);
 
+% phase plot
 subplot(3,1,3)
 semilogx(f,rad2deg(angle(H0)),LineWidth=3)
 hold on
 semilogx(f,rad2deg(H1ang),LineWidth=2)
-
 xline(testFreq,LineWidth=2,Label=['Error at' newline '20kHz =' newline num2str(phaseError,'%.1f') char(176) newline newline newline], ...
     Color='k',LineStyle=':',FontSize=18,LabelOrientation='horizontal',...
     LabelHorizontalAlignment='left',LabelVerticalAlignment='top')
 hold off
 legend(legendStr, Location='southwest')
-title(['Bark-Weighted Mean Absolute Phase Error (20Hz-20kHz) = ' num2str(rmsePhase,'%.2f') ' ' char(176)])
+title(['Bark-Weighted Mean Absolute Phase Error (20Hz-20kHz) = ' num2str(rootMeanSqPhaseErrorWeighted,'%.2f') ' ' char(176)])
 xlim([0 fs/2+0.1*fs+2000])
 xlabel("Frequency (Hz)")
 ylabel("Phase Angle (Deg)")
@@ -261,11 +273,14 @@ fig.WindowState = "maximized";
  
 %%
 function [upFilts, downFilts] = getOverSamplingFilters(numStages)
+% Returns cells containing interpolation and decimation filters for each
+% stage of X2 oversampling
 
 upFilts = cell(numStages,1);
 downFilts = cell(numStages,1);
 
-    for stage = 1:numStages    
+    for stage = 1:numStages   
+        % set transition bandwidths 
         if stage == 1
             twUp = single(0.05);
             twDown = single(0.06);
@@ -274,6 +289,7 @@ downFilts = cell(numStages,1);
             twDown = single(0.12);
         end
         
+        % set stopband attenuations 
         gaindBStartUp    = -90.0;
         gaindBStartDown  = -75.0;
         gaindBFactorUp   =  10.0;
@@ -281,7 +297,8 @@ downFilts = cell(numStages,1);
         
         SBAup=gaindBStartUp + gaindBFactorUp * (stage-1);
         SBAdown=gaindBStartDown + gaindBFactorDown * (stage-1);
-
+        
+        % create the filters 
         upFilts{stage} = getUpFilts(SBAup,twUp);
         downFilts{stage} = getDownFilts(SBAdown, twDown);
     end
@@ -289,6 +306,7 @@ end
 
 %%
 function [c] = getUpFilts(amplitudedB, normalisedTransitionWidth)
+% returns a single X2 interpolation filter
     c = designHalfbandFIR(TransitionWidth=normalisedTransitionWidth, ...
                             StopbandAttenuation=-1*amplitudedB, SystemObject=true, ...
                             Structure='interp', DesignMethod="equiripple", Verbose=true);
@@ -296,12 +314,17 @@ end
 
 %%
 function [c] = getDownFilts(amplitudedB, normalisedTransitionWidth)
+% returns a single X2 decimation filter
     c = designHalfbandFIR(TransitionWidth=normalisedTransitionWidth, ...
                             StopbandAttenuation=-1*amplitudedB, SystemObject=true, ...
                             Structure='decim', DesignMethod="equiripple", Verbose=true);
 end
 %%
 function [b, a] = invFreqzMagOnly(bs, as, fs, Nfft, NZ, NP)
+% Constructs a minimum phase repsonse around the magnitude response of a
+% continous-time filter defined by bs/as using the cepstral method. It then
+% passes that complex response to infreqz to be discritized by
+% minimization of the error in the complex responses.
 
 % bs: s-domain numerator 
 % as: s-domain denominator 
@@ -338,8 +361,13 @@ function [b, a] = invFreqzMagOnly(bs, as, fs, Nfft, NZ, NP)
 end
 
 %%
-
 function [b, a, compTime] = nyquistBandTransform(bs, as, fs, order)
+% Returns a discritized version of the continous-time filter, bs/as. The
+% discritization is carried out using the Nyquist band transform devloped
+% in Nyquist Band Transform: An Order-Preserving Transform for Bandlimited
+% Discretization by CHAMP C. DARABUNDIT, JONATHAN S. ABEL, and DAVID
+% BERNERS found at
+% https://ccrma.stanford.edu/~champ/files/Darabundit2022_NBT.pdf
 
 % bs: s-domain numerator 
 % as: s-domain denominator 
@@ -369,7 +397,7 @@ function [b, a, compTime] = nyquistBandTransform(bs, as, fs, order)
     
     A0 = flip(A0,1);
 
-    % gamma is a free paramater that allows perfedct matching for one
+    % gamma is a free paramater that allows perfect matching for one
     % frequency via EQ. 64 in Nyquist Band Transform: An Order-Preserving Transform for
     % Bandlimited Discretization
     % Uplsilon = 2*(((2/T)*tan((Omega_a*T)/2))/Omega_a)*sqrt(1-((Omega_a*T)/pi)^2);
@@ -400,7 +428,7 @@ function [b, a, compTime] = nyquistBandTransform(bs, as, fs, order)
     %         gammaHat = 2;    
     % end
 
-    % MSE 20Hz-20kHz
+    % Bark-Weighted MSE, 20Hz-20kHz
     switch fs
         case 48e3
             gammaHat = 2.1826;
@@ -440,7 +468,6 @@ function [b, a, compTime] = nyquistBandTransform(bs, as, fs, order)
 
     % Stabilize the mapped coefficients κa and enforce minimum/maximum phase
     % on κb
-    
     [z,p,k] = tf2zp(kb.',ka.');
     pImag = imag(p);
     pReal = real(p);
@@ -474,9 +501,10 @@ end
 %%
 function bkWts = getBkWts(freq)
     % Returns an array of weights the same length as freq where each weight
-    % equals 1 divided by the bandwidth of the Bark band that the corresponding
-    % frequency falls in
-
+    % equals 1 divided by the bandwidth of the Bark band that the
+    % corresponding frequency falls in for frequencies less than 27kHz and
+    % 1/f for frequencies above that.
+    
     % freq: An array of frequencies in Hz
 
     barkBandEdges = [20, 100, 200, 300, 400, 510, ...
