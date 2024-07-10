@@ -264,7 +264,7 @@ xline(testFreq,LineWidth=2,Label=['Error at' newline '20kHz =' newline num2str(p
     LabelHorizontalAlignment='left',LabelVerticalAlignment='top')
 hold off
 legend(legendStr, Location='southwest')
-title(['Bark-Weighted Mean Absolute Phase Error (20Hz-20kHz) = ' num2str(rootMeanSqPhaseErrorWeighted,'%.2f') ' ' char(176)])
+title(['Bark-Weighted Phase RMSE (20Hz-20kHz) = ' num2str(rootMeanSqPhaseErrorWeighted,'%.2f') ' ' char(176)])
 xlim([0 fs/2+0.1*fs+2000])
 xlabel("Frequency (Hz)")
 ylabel("Phase Angle (Deg)")
