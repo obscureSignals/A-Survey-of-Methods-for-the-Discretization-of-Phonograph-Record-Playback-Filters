@@ -17,7 +17,7 @@ sdtf = tf(b0, a0); % make continuous transer function object
 bOrderOriginal = length(b0)-1; % order of s-domain numerator 
 aOrderOriginal = length(a0)-1; % order of s-domain denominator 
 
-liveScript: load  your own file? we would still run the impulse for the
+% liveScript: load  your own file? we would still run the impulse for the
 %plots
 
 fs = 48e3; % original sample rate 
