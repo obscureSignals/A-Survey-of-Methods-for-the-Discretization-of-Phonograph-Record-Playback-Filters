@@ -11,7 +11,7 @@ Reach out to benjaminrthompson.mail@gmail.com with thoughts and questions.
 Please cite _A Survey of Methods for the Discretization of Phonograph Record Playback Filters_ by Benjamin Thompson, Tre DiPassio, Jenna Rutowski, and Michael C. Heilemann.
 
 **Minimum Requirements**
-In addition to MATLAB, the following toolboxes are required:
-Control System Toolbox
-Signal Processing Toolbox
-DSP System Toolbox
+In addition to MATLAB, the following toolboxes are required:\
+Control System Toolbox\
+Signal Processing Toolbox\
+DSP System Toolbox\
